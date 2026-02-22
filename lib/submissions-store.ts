@@ -73,7 +73,7 @@ function getMissingTableSetupMessage(tableName: string) {
   return [
     `Supabase table '${tableName}' was not found in schema cache.`,
     `Create the table (or set SUPABASE_SUBMISSIONS_TABLE to an existing table) and allow anon role access.`,
-    "Example SQL:",
+    "Run supabase/submissions.sql in the Supabase SQL editor, or use the SQL below:",
     `create table if not exists public.${tableName} (`,
     "  id uuid primary key default gen_random_uuid(),",
     "  student_name text not null,",
