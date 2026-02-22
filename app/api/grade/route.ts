@@ -1,45 +1,7 @@
 import { NextRequest } from "next/server";
-import {
-  createSubmissionRecord,
-  getSubmissionStorageInfo,
-  persistUploadedFile,
-} from "@/lib/submissions-store";
+import { createSubmissionRecord, persistUploadedFile } from "@/lib/submissions-store";
 
 const MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
-
-type ResponseOutputItem = {
-  type?: string;
-  content?: Array<{
-    type?: string;
-    text?: string;
-  }>;
-};
-
-type ResponsesApiPayload = {
-  id?: string;
-  output_text?: string;
-  output?: ResponseOutputItem[];
-};
-
-function extractReportText(payload: ResponsesApiPayload) {
-  if (payload.output_text && payload.output_text.trim().length > 0) {
-    return payload.output_text.trim();
-  }
-
-  const chunks: string[] = [];
-  for (const item of payload.output || []) {
-    if (item.type !== "message") {
-      continue;
-    }
-    for (const part of item.content || []) {
-      if (part.type === "output_text" && part.text) {
-        chunks.push(part.text);
-      }
-    }
-  }
-
-  return chunks.join("\n").trim();
-}
 
 export async function POST(req: NextRequest) {
   const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -124,9 +86,12 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: `Grading failed: ${errorText}` }, { status: gradingResponse.status });
     }
 
-    const gradingData = (await gradingResponse.json()) as ResponsesApiPayload;
+    const gradingData = (await gradingResponse.json()) as {
+      id?: string;
+      output_text?: string;
+    };
 
-    const report = extractReportText(gradingData) || "No grading report generated.";
+    const report = gradingData.output_text || "No grading report generated.";
 
     const tempId = crypto.randomUUID();
     const memoFile = await persistUploadedFile(memo, tempId, "memo");
@@ -143,12 +108,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    const storage = await getSubmissionStorageInfo();
-
-    return Response.json({
-      submission,
-      storage,
-    });
+    return Response.json({ submission });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Internal server error";
     console.error("Grading route error:", error);
