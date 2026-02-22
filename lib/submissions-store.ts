@@ -58,6 +58,9 @@ const DEFAULT_SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9teGhkZGZ4bGRsa295b2tkZW1rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE3MzY5NjMsImV4cCI6MjA4NzMxMjk2M30.igVT1rjeylulUKqKDUai7HgOqdEblTm3g1rb_8oo6Lw";
 const DEFAULT_SUBMISSIONS_TABLE = "submissions";
 
+const inMemoryFallbackRecords = new Map<string, SubmissionRecord>();
+let usingInMemoryFallback = false;
+
 function getSupabaseConfig(): SupabaseConfig {
   return {
     url: process.env.SUPABASE_URL || DEFAULT_SUPABASE_URL,
@@ -96,6 +99,17 @@ function formatSupabaseError(status: number, body: SupabaseErrorBody | string, t
 
   const detailText = typeof body === "string" ? body : JSON.stringify(body);
   return `Supabase request failed (${status}): ${detailText}`;
+}
+
+function isMissingTableError(error: unknown) {
+  return error instanceof Error && error.message.includes("was not found in schema cache");
+}
+
+function enableFallbackForMissingTable() {
+  if (!usingInMemoryFallback) {
+    console.warn("Supabase submissions table missing; switching to in-memory fallback storage.");
+  }
+  usingInMemoryFallback = true;
 }
 
 async function supabaseRequest<T>(endpoint: string, init?: RequestInit): Promise<T> {
@@ -140,8 +154,20 @@ function mapRowToSubmissionRecord(row: SubmissionDatabaseRow): SubmissionRecord 
   };
 }
 
+function listInMemoryRecords() {
+  return [...inMemoryFallbackRecords.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
 export async function getSubmissionStorageInfo() {
   const { table } = getSupabaseConfig();
+
+  if (usingInMemoryFallback) {
+    return {
+      dataDir: "memory:submissions",
+      usingFallbackTempDir: true,
+    };
+  }
+
   return {
     dataDir: `supabase:${table}`,
     usingFallbackTempDir: false,
@@ -166,6 +192,16 @@ export async function persistUploadedFile(file: File, submissionId: string, labe
 export async function createSubmissionRecord(
   payload: Omit<SubmissionRecord, "id" | "createdAt">
 ): Promise<SubmissionRecord> {
+  if (usingInMemoryFallback) {
+    const record: SubmissionRecord = {
+      ...payload,
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+    };
+    inMemoryFallbackRecords.set(record.id, record);
+    return record;
+  }
+
   const { table } = getSupabaseConfig();
   const insertPayload: SubmissionInsertPayload = {
     student_name: payload.studentName,
@@ -175,38 +211,75 @@ export async function createSubmissionRecord(
     files: payload.files,
   };
 
-  const rows = await supabaseRequest<SubmissionDatabaseRow[]>(
-    `${table}?select=id,student_name,prompt,report,created_at,openai_response_id,files`,
-    {
-      method: "POST",
-      headers: {
-        Prefer: "return=representation",
-      },
-      body: JSON.stringify(insertPayload),
+  try {
+    const rows = await supabaseRequest<SubmissionDatabaseRow[]>(
+      `${table}?select=id,student_name,prompt,report,created_at,openai_response_id,files`,
+      {
+        method: "POST",
+        headers: {
+          Prefer: "return=representation",
+        },
+        body: JSON.stringify(insertPayload),
+      }
+    );
+
+    if (!rows[0]) {
+      throw new Error("Supabase insert returned no row.");
     }
-  );
 
-  if (!rows[0]) {
-    throw new Error("Supabase insert returned no row.");
+    return mapRowToSubmissionRecord(rows[0]);
+  } catch (error) {
+    if (!isMissingTableError(error)) {
+      throw error;
+    }
+
+    enableFallbackForMissingTable();
+    return createSubmissionRecord(payload);
   }
-
-  return mapRowToSubmissionRecord(rows[0]);
 }
 
 export async function listSubmissionRecords(): Promise<SubmissionRecord[]> {
-  const { table } = getSupabaseConfig();
-  const rows = await supabaseRequest<SubmissionDatabaseRow[]>(
-    `${table}?select=id,student_name,prompt,report,created_at,openai_response_id,files&order=created_at.desc`
-  );
+  if (usingInMemoryFallback) {
+    return listInMemoryRecords();
+  }
 
-  return rows.map(mapRowToSubmissionRecord);
+  const { table } = getSupabaseConfig();
+
+  try {
+    const rows = await supabaseRequest<SubmissionDatabaseRow[]>(
+      `${table}?select=id,student_name,prompt,report,created_at,openai_response_id,files&order=created_at.desc`
+    );
+
+    return rows.map(mapRowToSubmissionRecord);
+  } catch (error) {
+    if (!isMissingTableError(error)) {
+      throw error;
+    }
+
+    enableFallbackForMissingTable();
+    return listInMemoryRecords();
+  }
 }
 
 export async function findSubmissionById(id: string): Promise<SubmissionRecord | null> {
-  const { table } = getSupabaseConfig();
-  const rows = await supabaseRequest<SubmissionDatabaseRow[]>(
-    `${table}?select=id,student_name,prompt,report,created_at,openai_response_id,files&id=eq.${encodeURIComponent(id)}&limit=1`
-  );
+  if (usingInMemoryFallback) {
+    return inMemoryFallbackRecords.get(id) || null;
+  }
 
-  return rows[0] ? mapRowToSubmissionRecord(rows[0]) : null;
+  const { table } = getSupabaseConfig();
+
+  try {
+    const rows = await supabaseRequest<SubmissionDatabaseRow[]>(
+      `${table}?select=id,student_name,prompt,report,created_at,openai_response_id,files&id=eq.${encodeURIComponent(id)}&limit=1`
+    );
+
+    return rows[0] ? mapRowToSubmissionRecord(rows[0]) : null;
+  } catch (error) {
+    if (!isMissingTableError(error)) {
+      throw error;
+    }
+
+    enableFallbackForMissingTable();
+    return inMemoryFallbackRecords.get(id) || null;
+  }
 }
