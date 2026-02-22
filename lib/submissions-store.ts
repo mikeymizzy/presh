@@ -70,7 +70,7 @@ async function resolveStorageContext(): Promise<StorageContext> {
 
   await mkdir(tempDataDir, { recursive: true });
   console.warn(
-    `Submission storage fallback enabled. Could not write to ${primaryDataDir}; using ${tempDataDir} instead.`
+    `Persistent directory is not writable in this deployment, so submissions are temporarily stored in ${tempDataDir}. Configure SUBMISSIONS_DATA_DIR to a persistent writable volume to keep records long-term. (Attempted primary path: ${primaryDataDir})`
   );
   return buildContext(tempDataDir, true);
 }
