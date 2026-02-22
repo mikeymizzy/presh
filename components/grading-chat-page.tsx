@@ -151,7 +151,7 @@ export function GradingChatPage() {
                     <div className="flex flex-wrap gap-2">
                       <a className="text-sm underline" href={`/api/submissions/${submission.id}/download?file=memo`}>Memo</a>
                       <a className="text-sm underline" href={`/api/submissions/${submission.id}/download?file=answer`}>Answer</a>
-                      <a className="text-sm underline" href={`/api/submissions/${submission.id}/download?file=report`}>Report</a>
+                      <a className="text-sm underline" href={`/api/submissions/${submission.id}/download?file=report`}>Report (PDF)</a>
                     </div>
                   </div>
                 </div>
