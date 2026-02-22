@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, access, mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -23,39 +24,124 @@ export type SubmissionRecord = {
   };
 };
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const SUBMISSIONS_DIR = path.join(DATA_DIR, "submissions");
-const DB_PATH = path.join(DATA_DIR, "submissions.json");
-
 type SubmissionDatabase = {
   submissions: SubmissionRecord[];
 };
 
-async function ensureDataStore() {
-  await mkdir(SUBMISSIONS_DIR, { recursive: true });
+type StorageContext = {
+  dataDir: string;
+  submissionsDir: string;
+  dbPath: string;
+  usingFallbackTempDir: boolean;
+};
+
+let storageContextPromise: Promise<StorageContext> | null = null;
+
+function buildContext(dataDir: string, usingFallbackTempDir: boolean): StorageContext {
+  return {
+    dataDir,
+    submissionsDir: path.join(dataDir, "submissions"),
+    dbPath: path.join(dataDir, "submissions.json"),
+    usingFallbackTempDir,
+  };
+}
+
+async function canUseDirectory(targetDir: string) {
   try {
-    await readFile(DB_PATH, "utf8");
+    await mkdir(targetDir, { recursive: true });
+    await access(targetDir);
+    const probeParent = path.join(targetDir, ".presh-write-probe-");
+    const probeDir = await mkdtemp(probeParent);
+    await rm(probeDir, { recursive: true, force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveStorageContext(): Promise<StorageContext> {
+  const configuredDataDir = process.env.SUBMISSIONS_DATA_DIR;
+  const primaryDataDir = configuredDataDir || path.join(process.cwd(), "data");
+  const tempDataDir = path.join(os.tmpdir(), "presh-data");
+
+  if (await canUseDirectory(primaryDataDir)) {
+    return buildContext(primaryDataDir, false);
+  }
+
+  await mkdir(tempDataDir, { recursive: true });
+  console.warn(
+    `Submission storage fallback enabled. Could not write to ${primaryDataDir}; using ${tempDataDir} instead.`
+  );
+  return buildContext(tempDataDir, true);
+}
+
+async function getStorageContext() {
+  if (!storageContextPromise) {
+    storageContextPromise = resolveStorageContext();
+  }
+  return storageContextPromise;
+}
+
+function resetStorageContextToTempDir() {
+  const tempDataDir = path.join(os.tmpdir(), "presh-data");
+  storageContextPromise = Promise.resolve(buildContext(tempDataDir, true));
+  return storageContextPromise;
+}
+
+async function initializeContext(context: StorageContext) {
+  await mkdir(context.submissionsDir, { recursive: true });
+  try {
+    await readFile(context.dbPath, "utf8");
   } catch {
     const emptyDb: SubmissionDatabase = { submissions: [] };
-    await writeFile(DB_PATH, JSON.stringify(emptyDb, null, 2), "utf8");
+    await writeFile(context.dbPath, JSON.stringify(emptyDb, null, 2), "utf8");
+  }
+}
+
+async function ensureDataStore() {
+  const context = await getStorageContext();
+  try {
+    await initializeContext(context);
+    return context;
+  } catch (error) {
+    if (!context.usingFallbackTempDir) {
+      const fallbackContext = await resetStorageContextToTempDir();
+      await mkdir(fallbackContext.dataDir, { recursive: true });
+      console.warn(
+        `Submission storage switched to fallback temp dir after init failure for ${context.dataDir}.`,
+        error
+      );
+      await initializeContext(fallbackContext);
+      return fallbackContext;
+    }
+    throw error;
   }
 }
 
 async function readDb(): Promise<SubmissionDatabase> {
-  await ensureDataStore();
-  const raw = await readFile(DB_PATH, "utf8");
+  const context = await ensureDataStore();
+  const raw = await readFile(context.dbPath, "utf8");
   return JSON.parse(raw) as SubmissionDatabase;
 }
 
 async function writeDb(db: SubmissionDatabase) {
-  await ensureDataStore();
-  await writeFile(DB_PATH, JSON.stringify(db, null, 2), "utf8");
+  const context = await ensureDataStore();
+  await writeFile(context.dbPath, JSON.stringify(db, null, 2), "utf8");
+}
+
+export async function getSubmissionStorageInfo() {
+  const context = await ensureDataStore();
+  return {
+    dataDir: context.dataDir,
+    usingFallbackTempDir: context.usingFallbackTempDir,
+  };
 }
 
 export async function persistUploadedFile(file: File, submissionId: string, label: "memo" | "answer") {
+  const context = await ensureDataStore();
   const fileExtension = path.extname(file.name) || ".bin";
   const fileName = `${label}_${randomUUID()}${fileExtension}`;
-  const targetPath = path.join(SUBMISSIONS_DIR, submissionId, fileName);
+  const targetPath = path.join(context.submissionsDir, submissionId, fileName);
   await mkdir(path.dirname(targetPath), { recursive: true });
 
   const buffer = Buffer.from(await file.arrayBuffer());
@@ -64,7 +150,7 @@ export async function persistUploadedFile(file: File, submissionId: string, labe
   return {
     originalName: file.name,
     savedName: fileName,
-    relativePath: path.relative(process.cwd(), targetPath),
+    relativePath: targetPath,
     size: file.size,
     mimeType: file.type || "application/octet-stream",
   } satisfies StoredFile;

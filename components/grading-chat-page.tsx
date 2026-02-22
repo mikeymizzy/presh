@@ -6,6 +6,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
+type StorageInfo = {
+  dataDir: string;
+  usingFallbackTempDir: boolean;
+};
+
 type SubmissionRecord = {
   id: string;
   studentName: string;
@@ -23,11 +28,13 @@ export function GradingChatPage() {
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<string>("");
   const [submissions, setSubmissions] = useState<SubmissionRecord[]>([]);
+  const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
 
   const loadSubmissions = async () => {
     const response = await fetch("/api/submissions");
-    const data = (await response.json()) as { submissions?: SubmissionRecord[] };
+    const data = (await response.json()) as { submissions?: SubmissionRecord[]; storage?: StorageInfo };
     setSubmissions(data.submissions || []);
+    setStorageInfo(data.storage || null);
   };
 
   useEffect(() => {
@@ -61,6 +68,7 @@ export function GradingChatPage() {
       const data = (await response.json()) as {
         error?: string;
         submission?: SubmissionRecord;
+        storage?: StorageInfo;
       };
 
       if (!response.ok || !data.submission) {
@@ -69,6 +77,7 @@ export function GradingChatPage() {
 
       setReport(data.submission.report);
       setSubmissions((current) => [data.submission!, ...current]);
+      setStorageInfo(data.storage || null);
     } catch (submitError) {
       const message = submitError instanceof Error ? submitError.message : "Unexpected error.";
       setError(message);
@@ -106,6 +115,13 @@ export function GradingChatPage() {
               </Button>
             </form>
             {error ? <p className="mt-4 text-sm text-destructive">{error}</p> : null}
+            {storageInfo?.usingFallbackTempDir ? (
+              <p className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+                Persistent directory is not writable in this deployment, so submissions are temporarily stored in
+                <code className="mx-1 rounded bg-amber-100 px-1 py-0.5">{storageInfo.dataDir}</code>.
+                Configure <code className="mx-1 rounded bg-amber-100 px-1 py-0.5">SUBMISSIONS_DATA_DIR</code> to a persistent writable volume to keep records long-term.
+              </p>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -135,7 +151,7 @@ export function GradingChatPage() {
                     <div className="flex flex-wrap gap-2">
                       <a className="text-sm underline" href={`/api/submissions/${submission.id}/download?file=memo`}>Memo</a>
                       <a className="text-sm underline" href={`/api/submissions/${submission.id}/download?file=answer`}>Answer</a>
-                      <a className="text-sm underline" href={`/api/submissions/${submission.id}/download?file=report`}>Report</a>
+                      <a className="text-sm underline" href={`/api/submissions/${submission.id}/download?file=report`}>Report (PDF)</a>
                     </div>
                   </div>
                 </div>

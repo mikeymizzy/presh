@@ -1,6 +1,9 @@
-import { listSubmissionRecords } from "@/lib/submissions-store";
+import { getSubmissionStorageInfo, listSubmissionRecords } from "@/lib/submissions-store";
 
 export async function GET() {
-  const submissions = await listSubmissionRecords();
-  return Response.json({ submissions });
+  const [submissions, storage] = await Promise.all([
+    listSubmissionRecords(),
+    getSubmissionStorageInfo(),
+  ]);
+  return Response.json({ submissions, storage });
 }
