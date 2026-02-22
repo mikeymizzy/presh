@@ -82,6 +82,8 @@ function createReportPdf(studentName: string, report: string) {
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const target = req.nextUrl.searchParams.get("file");
+  const studentName = req.nextUrl.searchParams.get("studentName")?.trim();
+  const includeAll = req.nextUrl.searchParams.get("includeAll") === "true";
 
   if (target !== "memo" && target !== "answer" && target !== "report") {
     return Response.json({ error: "file query must be memo, answer, or report" }, { status: 400 });
@@ -90,6 +92,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const submission = await findSubmissionById(id);
   if (!submission) {
     return Response.json({ error: "Submission not found" }, { status: 404 });
+  }
+
+  if (!includeAll && (!studentName || submission.studentName !== studentName)) {
+    return Response.json({ error: "Not authorized to access this submission" }, { status: 403 });
   }
 
   if (target === "report") {
