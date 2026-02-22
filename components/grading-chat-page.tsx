@@ -117,8 +117,8 @@ export function GradingChatPage() {
             {error ? <p className="mt-4 text-sm text-destructive">{error}</p> : null}
             {storageInfo?.usingFallbackTempDir ? (
               <p className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
-                Persistent directory is not writable in this deployment, so submissions are temporarily stored in
-                <code className="mx-1 rounded bg-amber-100 px-1 py-0.5">{storageInfo.dataDir}</code>.
+                Persistent directory is not writable in this deployment, so submissions are temporarily stored in {" "}
+                <code className="mx-1 rounded bg-amber-100 px-1 py-0.5">{storageInfo.dataDir}</code>. {" "}
                 Configure <code className="mx-1 rounded bg-amber-100 px-1 py-0.5">SUBMISSIONS_DATA_DIR</code> to a persistent writable volume to keep records long-term.
               </p>
             ) : null}
