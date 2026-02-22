@@ -1,6 +1,3 @@
-import { mkdir, readFile, writeFile, access, mkdtemp, rm } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 export type StoredFile = {
@@ -9,6 +6,7 @@ export type StoredFile = {
   relativePath: string;
   size: number;
   mimeType: string;
+  contentBase64?: string;
 };
 
 export type SubmissionRecord = {
@@ -24,158 +22,142 @@ export type SubmissionRecord = {
   };
 };
 
-type SubmissionDatabase = {
-  submissions: SubmissionRecord[];
+type SubmissionDatabaseRow = {
+  id: string;
+  student_name: string;
+  prompt: string;
+  report: string;
+  created_at: string;
+  openai_response_id?: string | null;
+  files: SubmissionRecord["files"];
 };
 
-type StorageContext = {
-  dataDir: string;
-  submissionsDir: string;
-  dbPath: string;
-  usingFallbackTempDir: boolean;
+type SubmissionInsertPayload = {
+  student_name: string;
+  prompt: string;
+  report: string;
+  openai_response_id?: string;
+  files: SubmissionRecord["files"];
 };
 
-let storageContextPromise: Promise<StorageContext> | null = null;
+type SupabaseConfig = {
+  url: string;
+  anonKey: string;
+};
 
-function buildContext(dataDir: string, usingFallbackTempDir: boolean): StorageContext {
+const DEFAULT_SUPABASE_URL = "https://omxhddfxldlkoyokdemk.supabase.co";
+const DEFAULT_SUPABASE_ANON_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9teGhkZGZ4bGRsa295b2tkZW1rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE3MzY5NjMsImV4cCI6MjA4NzMxMjk2M30.igVT1rjeylulUKqKDUai7HgOqdEblTm3g1rb_8oo6Lw";
+
+function getSupabaseConfig(): SupabaseConfig {
   return {
-    dataDir,
-    submissionsDir: path.join(dataDir, "submissions"),
-    dbPath: path.join(dataDir, "submissions.json"),
-    usingFallbackTempDir,
+    url: process.env.SUPABASE_URL || DEFAULT_SUPABASE_URL,
+    anonKey: process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY,
   };
 }
 
-async function canUseDirectory(targetDir: string) {
-  try {
-    await mkdir(targetDir, { recursive: true });
-    await access(targetDir);
-    const probeParent = path.join(targetDir, ".presh-write-probe-");
-    const probeDir = await mkdtemp(probeParent);
-    await rm(probeDir, { recursive: true, force: true });
-    return true;
-  } catch {
-    return false;
-  }
-}
+async function supabaseRequest<T>(
+  endpoint: string,
+  init?: RequestInit
+): Promise<T> {
+  const { url, anonKey } = getSupabaseConfig();
+  const response = await fetch(`${url}/rest/v1/${endpoint}`, {
+    ...init,
+    headers: {
+      apikey: anonKey,
+      Authorization: `Bearer ${anonKey}`,
+      "Content-Type": "application/json",
+      ...(init?.headers || {}),
+    },
+  });
 
-async function resolveStorageContext(): Promise<StorageContext> {
-  const configuredDataDir = process.env.SUBMISSIONS_DATA_DIR;
-  const primaryDataDir = configuredDataDir || path.join(process.cwd(), "data");
-  const tempDataDir = path.join(os.tmpdir(), "presh-data");
-
-  if (await canUseDirectory(primaryDataDir)) {
-    return buildContext(primaryDataDir, false);
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(`Supabase request failed (${response.status}): ${details}`);
   }
 
-  await mkdir(tempDataDir, { recursive: true });
-  console.warn(
-    `Submission storage fallback enabled. Could not write to ${primaryDataDir}; using ${tempDataDir} instead.`
-  );
-  return buildContext(tempDataDir, true);
-}
-
-async function getStorageContext() {
-  if (!storageContextPromise) {
-    storageContextPromise = resolveStorageContext();
+  if (response.status === 204) {
+    return undefined as T;
   }
-  return storageContextPromise;
+
+  return (await response.json()) as T;
 }
 
-function resetStorageContextToTempDir() {
-  const tempDataDir = path.join(os.tmpdir(), "presh-data");
-  storageContextPromise = Promise.resolve(buildContext(tempDataDir, true));
-  return storageContextPromise;
-}
-
-async function initializeContext(context: StorageContext) {
-  await mkdir(context.submissionsDir, { recursive: true });
-  try {
-    await readFile(context.dbPath, "utf8");
-  } catch {
-    const emptyDb: SubmissionDatabase = { submissions: [] };
-    await writeFile(context.dbPath, JSON.stringify(emptyDb, null, 2), "utf8");
-  }
-}
-
-async function ensureDataStore() {
-  const context = await getStorageContext();
-  try {
-    await initializeContext(context);
-    return context;
-  } catch (error) {
-    if (!context.usingFallbackTempDir) {
-      const fallbackContext = await resetStorageContextToTempDir();
-      await mkdir(fallbackContext.dataDir, { recursive: true });
-      console.warn(
-        `Submission storage switched to fallback temp dir after init failure for ${context.dataDir}.`,
-        error
-      );
-      await initializeContext(fallbackContext);
-      return fallbackContext;
-    }
-    throw error;
-  }
-}
-
-async function readDb(): Promise<SubmissionDatabase> {
-  const context = await ensureDataStore();
-  const raw = await readFile(context.dbPath, "utf8");
-  return JSON.parse(raw) as SubmissionDatabase;
-}
-
-async function writeDb(db: SubmissionDatabase) {
-  const context = await ensureDataStore();
-  await writeFile(context.dbPath, JSON.stringify(db, null, 2), "utf8");
+function mapRowToSubmissionRecord(row: SubmissionDatabaseRow): SubmissionRecord {
+  return {
+    id: row.id,
+    studentName: row.student_name,
+    prompt: row.prompt,
+    report: row.report,
+    createdAt: row.created_at,
+    openaiResponseId: row.openai_response_id || undefined,
+    files: row.files,
+  };
 }
 
 export async function getSubmissionStorageInfo() {
-  const context = await ensureDataStore();
   return {
-    dataDir: context.dataDir,
-    usingFallbackTempDir: context.usingFallbackTempDir,
+    dataDir: "supabase",
+    usingFallbackTempDir: false,
   };
 }
 
 export async function persistUploadedFile(file: File, submissionId: string, label: "memo" | "answer") {
-  const context = await ensureDataStore();
-  const fileExtension = path.extname(file.name) || ".bin";
-  const fileName = `${label}_${randomUUID()}${fileExtension}`;
-  const targetPath = path.join(context.submissionsDir, submissionId, fileName);
-  await mkdir(path.dirname(targetPath), { recursive: true });
-
+  const fileExtension = (file.name.match(/(\.[^./\\]+)$/)?.[1] || ".bin").toLowerCase();
+  const fileName = `${label}_${submissionId}_${randomUUID()}${fileExtension}`;
   const buffer = Buffer.from(await file.arrayBuffer());
-  await writeFile(targetPath, buffer);
 
   return {
     originalName: file.name,
     savedName: fileName,
-    relativePath: targetPath,
+    relativePath: "",
     size: file.size,
     mimeType: file.type || "application/octet-stream",
+    contentBase64: buffer.toString("base64"),
   } satisfies StoredFile;
 }
 
 export async function createSubmissionRecord(
   payload: Omit<SubmissionRecord, "id" | "createdAt">
 ): Promise<SubmissionRecord> {
-  const db = await readDb();
-  const record: SubmissionRecord = {
-    id: randomUUID(),
-    createdAt: new Date().toISOString(),
-    ...payload,
+  const insertPayload: SubmissionInsertPayload = {
+    student_name: payload.studentName,
+    prompt: payload.prompt,
+    report: payload.report,
+    openai_response_id: payload.openaiResponseId,
+    files: payload.files,
   };
-  db.submissions.unshift(record);
-  await writeDb(db);
-  return record;
+
+  const rows = await supabaseRequest<SubmissionDatabaseRow[]>(
+    "submissions?select=id,student_name,prompt,report,created_at,openai_response_id,files",
+    {
+      method: "POST",
+      headers: {
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify(insertPayload),
+    }
+  );
+
+  if (!rows[0]) {
+    throw new Error("Supabase insert returned no row.");
+  }
+
+  return mapRowToSubmissionRecord(rows[0]);
 }
 
 export async function listSubmissionRecords(): Promise<SubmissionRecord[]> {
-  const db = await readDb();
-  return db.submissions;
+  const rows = await supabaseRequest<SubmissionDatabaseRow[]>(
+    "submissions?select=id,student_name,prompt,report,created_at,openai_response_id,files&order=created_at.desc"
+  );
+
+  return rows.map(mapRowToSubmissionRecord);
 }
 
 export async function findSubmissionById(id: string): Promise<SubmissionRecord | null> {
-  const db = await readDb();
-  return db.submissions.find((submission) => submission.id === id) ?? null;
+  const rows = await supabaseRequest<SubmissionDatabaseRow[]>(
+    `submissions?select=id,student_name,prompt,report,created_at,openai_response_id,files&id=eq.${encodeURIComponent(id)}&limit=1`
+  );
+
+  return rows[0] ? mapRowToSubmissionRecord(rows[0]) : null;
 }

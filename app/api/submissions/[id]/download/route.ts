@@ -103,10 +103,16 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 
   const fileInfo = target === "memo" ? submission.files.memo : submission.files.answer;
-  const legacyPath = fileInfo.relativePath.startsWith("/")
-    ? fileInfo.relativePath
-    : path.join(process.cwd(), fileInfo.relativePath);
-  const data = await readFile(legacyPath);
+
+  let data: Buffer;
+  if (fileInfo.contentBase64) {
+    data = Buffer.from(fileInfo.contentBase64, "base64");
+  } else {
+    const legacyPath = fileInfo.relativePath.startsWith("/")
+      ? fileInfo.relativePath
+      : path.join(process.cwd(), fileInfo.relativePath);
+    data = await readFile(legacyPath);
+  }
 
   return new Response(data, {
     headers: {
