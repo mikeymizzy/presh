@@ -30,18 +30,24 @@ export function GradingChatPage() {
   const [submissions, setSubmissions] = useState<SubmissionRecord[]>([]);
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
 
-  const loadSubmissions = async () => {
-    const response = await fetch("/api/submissions");
+  const loadSubmissions = async (name: string) => {
+    const studentNameValue = name.trim();
+    if (!studentNameValue) {
+      setSubmissions([]);
+      return;
+    }
+
+    const response = await fetch(`/api/submissions?studentName=${encodeURIComponent(studentNameValue)}`);
     const data = (await response.json()) as { submissions?: SubmissionRecord[]; storage?: StorageInfo };
     setSubmissions(data.submissions || []);
     setStorageInfo(data.storage || null);
   };
 
   useEffect(() => {
-    loadSubmissions().catch(() => {
+    loadSubmissions(studentName).catch(() => {
       setError("Could not load submission history.");
     });
-  }, []);
+  }, [studentName]);
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -140,7 +146,8 @@ export function GradingChatPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {submissions.length === 0 ? <p className="text-sm text-muted-foreground">No submissions saved yet.</p> : null}
+              {!studentName.trim() ? <p className="text-sm text-muted-foreground">Enter your student name to view your submissions.</p> : null}
+              {studentName.trim() && submissions.length === 0 ? <p className="text-sm text-muted-foreground">No submissions saved yet.</p> : null}
               {submissions.map((submission) => (
                 <div key={submission.id} className="rounded-lg border p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -149,14 +156,17 @@ export function GradingChatPage() {
                       <p className="text-xs text-muted-foreground">{new Date(submission.createdAt).toLocaleString()}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <a className="text-sm underline" href={`/api/submissions/${submission.id}/download?file=memo`}>Memo</a>
-                      <a className="text-sm underline" href={`/api/submissions/${submission.id}/download?file=answer`}>Answer</a>
-                      <a className="text-sm underline" href={`/api/submissions/${submission.id}/download?file=report`}>Report (PDF)</a>
+                      <a className="text-sm underline" href={`/api/submissions/${submission.id}/download?file=memo&studentName=${encodeURIComponent(studentName.trim())}`}>Memo</a>
+                      <a className="text-sm underline" href={`/api/submissions/${submission.id}/download?file=answer&studentName=${encodeURIComponent(studentName.trim())}`}>Answer</a>
+                      <a className="text-sm underline" href={`/api/submissions/${submission.id}/download?file=report&studentName=${encodeURIComponent(studentName.trim())}`}>Report (PDF)</a>
                     </div>
                   </div>
                 </div>
               ))}
             </div>
+            <p className="mt-4 text-sm text-muted-foreground">
+              Admin view: <a href="/admin/submissions" className="underline">Open all submissions</a>
+            </p>
           </CardContent>
         </Card>
       </main>

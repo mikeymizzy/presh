@@ -202,6 +202,15 @@ export async function listSubmissionRecords(): Promise<SubmissionRecord[]> {
   return rows.map(mapRowToSubmissionRecord);
 }
 
+export async function listSubmissionRecordsByStudent(studentName: string): Promise<SubmissionRecord[]> {
+  const { table } = getSupabaseConfig();
+  const rows = await supabaseRequest<SubmissionDatabaseRow[]>(
+    `${table}?select=id,student_name,prompt,report,created_at,openai_response_id,files&student_name=eq.${encodeURIComponent(studentName)}&order=created_at.desc`
+  );
+
+  return rows.map(mapRowToSubmissionRecord);
+}
+
 export async function findSubmissionById(id: string): Promise<SubmissionRecord | null> {
   const { table } = getSupabaseConfig();
   const rows = await supabaseRequest<SubmissionDatabaseRow[]>(
