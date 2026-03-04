@@ -142,7 +142,7 @@ export function GradingChatPage() {
 
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Gap Learning Grading Submission Database</CardTitle>
+            <CardTitle>Your Grading Results</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
@@ -164,9 +164,6 @@ export function GradingChatPage() {
                 </div>
               ))}
             </div>
-            <p className="mt-4 text-sm text-muted-foreground">
-              Gap Learning Grading admin view: <a href="/admin/submissions" className="underline">Open all submissions</a>
-            </p>
           </CardContent>
         </Card>
       </main>
