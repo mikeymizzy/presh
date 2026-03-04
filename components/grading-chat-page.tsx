@@ -97,7 +97,7 @@ export function GradingChatPage() {
       <main className="mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Student Submission Grader</CardTitle>
+            <CardTitle>Gap Learning Grading</CardTitle>
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={onSubmit}>
@@ -133,16 +133,16 @@ export function GradingChatPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Generated Report</CardTitle>
+            <CardTitle>Gap Learning Grading Report</CardTitle>
           </CardHeader>
           <CardContent>
-            <pre className="max-h-[500px] overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-sm">{report || "Run a submission to see the grading report."}</pre>
+            <pre className="max-h-[500px] overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-sm">{report || "Run a submission to see your Gap Learning Grading report."}</pre>
           </CardContent>
         </Card>
 
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Submission database (download anytime)</CardTitle>
+            <CardTitle>Your Grading Results</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
@@ -164,9 +164,6 @@ export function GradingChatPage() {
                 </div>
               ))}
             </div>
-            <p className="mt-4 text-sm text-muted-foreground">
-              Admin view: <a href="/admin/submissions" className="underline">Open all submissions</a>
-            </p>
           </CardContent>
         </Card>
       </main>
