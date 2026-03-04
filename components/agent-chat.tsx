@@ -52,14 +52,14 @@ export function AgentChat() {
           icon: "document",
         },
         {
-          label: "Ask grading question",
-          prompt: "I have a grading question.",
+          label: "Ask Gap Learning Grading question",
+          prompt: "I have a question for Gap Learning Grading.",
           icon: "circle-question",
         },
       ],
     },
     composer: {
-      placeholder: "Ask the grading agent...",
+      placeholder: "Ask Gap Learning Grading...",
       attachments: attachmentConfig,
     },
     onError: ({ error: eventError }) => {

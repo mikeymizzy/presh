@@ -29,7 +29,7 @@ export default function AdminSubmissionsPage() {
       <main className="mx-auto w-full max-w-5xl">
         <Card>
           <CardHeader>
-            <CardTitle>Admin submissions</CardTitle>
+            <CardTitle>Gap Learning Grading Admin Submissions</CardTitle>
           </CardHeader>
           <CardContent>
             {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
