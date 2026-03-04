@@ -248,7 +248,7 @@ export function GradingChat() {
           </div>
           <div>
             <div className="text-sm font-semibold text-foreground">
-              Grading Assistant
+              Gap Learning Grading
             </div>
             {responseSource && (
               <div className="text-xs text-muted-foreground">
@@ -413,7 +413,7 @@ function UploadPrompt({
             Upload Your Assignment
           </h2>
           <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
-            Attach your assignment file to get started. The AI grading assistant will review your work and provide detailed feedback.
+            Attach your assignment file to get started. Gap Learning Grading will review your work and provide detailed feedback.
           </p>
         </div>
       </div>
