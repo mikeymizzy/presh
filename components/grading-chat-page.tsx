@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 
 type StorageInfo = {
   dataDir: string;
@@ -20,7 +21,55 @@ type SubmissionRecord = {
 };
 
 
-function ReportViewer({ report }: { report: string }) {
+const LOADING_MESSAGES = [
+  "Reading the memo and student answer…",
+  "Checking key concepts against the memo…",
+  "Scoring accuracy and identifying gaps…",
+  "Drafting your grading report…",
+];
+
+function ReportViewer({ report, loading }: { report: string; loading: boolean }) {
+  const [progressValue, setProgressValue] = useState(8);
+  const [messageIndex, setMessageIndex] = useState(0);
+
+  useEffect(() => {
+    if (!loading) {
+      setProgressValue(8);
+      setMessageIndex(0);
+      return;
+    }
+
+    const progressTimer = window.setInterval(() => {
+      setProgressValue((current) => {
+        if (current >= 92) {
+          return current;
+        }
+
+        const increment = current < 50 ? 8 : 4;
+        return Math.min(current + increment, 92);
+      });
+    }, 700);
+
+    const messageTimer = window.setInterval(() => {
+      setMessageIndex((current) => (current + 1) % LOADING_MESSAGES.length);
+    }, 1800);
+
+    return () => {
+      window.clearInterval(progressTimer);
+      window.clearInterval(messageTimer);
+    };
+  }, [loading]);
+
+  if (loading) {
+    return (
+      <div className="space-y-4 rounded-md border bg-background p-4">
+        <p className="text-sm font-medium">Generating your report…</p>
+        <Progress value={progressValue} className="h-2" />
+        <p className="text-xs text-muted-foreground">{LOADING_MESSAGES[messageIndex]}</p>
+      </div>
+    );
+  }
+
   if (!report) {
     return <p className="text-sm text-muted-foreground">Run a submission to see your Gap Learning Grading report.</p>;
   }
@@ -192,7 +241,7 @@ export function GradingChatPage() {
             <CardTitle>Gap Learning Grading Report</CardTitle>
           </CardHeader>
           <CardContent>
-            <ReportViewer report={report} />
+            <ReportViewer report={report} loading={loading} />
           </CardContent>
         </Card>
 
