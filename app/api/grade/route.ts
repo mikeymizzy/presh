@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
             content: [
               {
                 type: "input_text",
-                text: `You are a strict but fair instructor. Student: ${studentName}.\n\nTask: compare the student's answer against the memo and generate:\n1) Score out of 100\n2) Key strengths\n3) Gaps/mistakes\n4) Recommendations\n5) Short final summary for parents/teachers.\n\nAdditional instruction:\n${prompt}`,
+                text: `You are a strict but fair instructor. Student: ${studentName}.\n\nTask: compare the student's answer against the memo and generate:\n1) Score out of 100\n2) Question-by-question feedback (for each question, include what was done well, what was incorrect/missing, and how to improve)\n3) Overall key strengths across the submission\n4) Overall gaps/mistakes across the submission\n5) Overall recommendations\n6) Short final summary for parents/teachers.\n\nImportant: Always present feedback in this order: first question-by-question feedback, then overall feedback.\n\nAdditional instruction:\n${prompt}`,
               },
               {
                 type: "input_file",
