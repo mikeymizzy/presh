@@ -19,6 +19,62 @@ type SubmissionRecord = {
   createdAt: string;
 };
 
+
+function ReportViewer({ report }: { report: string }) {
+  if (!report) {
+    return <p className="text-sm text-muted-foreground">Run a submission to see your Gap Learning Grading report.</p>;
+  }
+
+  const lines = report.split(/\r?\n/);
+  return (
+    <div className="max-h-[500px] space-y-2 overflow-auto rounded-md border bg-background p-4 text-sm leading-6">
+      {lines.map((line, index) => {
+        const trimmed = line.trim();
+
+        if (!trimmed) {
+          return <div key={index} className="h-2" />;
+        }
+
+        if (/^=+$/.test(trimmed) || /^-+$/.test(trimmed)) {
+          return <hr key={index} className="border-border" />;
+        }
+
+        if (/^\d+\.\s/.test(trimmed) || /^•\s/.test(trimmed)) {
+          return (
+            <p key={index} className="pl-2">
+              {formatInlineText(line)}
+            </p>
+          );
+        }
+
+        if (trimmed === trimmed.toUpperCase() && trimmed.length > 3) {
+          return (
+            <p key={index} className="text-base font-semibold tracking-wide">
+              {formatInlineText(line)}
+            </p>
+          );
+        }
+
+        return <p key={index}>{formatInlineText(line)}</p>;
+      })}
+    </div>
+  );
+}
+
+function formatInlineText(text: string) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return (
+        <strong key={index} className="font-semibold">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    return part;
+  });
+}
+
 export function GradingChatPage() {
   const [studentName, setStudentName] = useState("");
   const [prompt, setPrompt] = useState("Grade the answer against the memo and give a concise report.");
@@ -136,7 +192,7 @@ export function GradingChatPage() {
             <CardTitle>Gap Learning Grading Report</CardTitle>
           </CardHeader>
           <CardContent>
-            <pre className="max-h-[500px] overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-sm">{report || "Run a submission to see your Gap Learning Grading report."}</pre>
+            <ReportViewer report={report} />
           </CardContent>
         </Card>
 
