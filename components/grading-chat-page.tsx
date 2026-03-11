@@ -3,7 +3,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 
@@ -125,8 +124,8 @@ function formatInlineText(text: string) {
 }
 
 export function GradingChatPage() {
+  const prompt = "Grade the answer against the memo and give a concise report.";
   const [studentName, setStudentName] = useState("");
-  const [prompt, setPrompt] = useState("Grade the answer against the memo and give a concise report.");
   const [memo, setMemo] = useState<File | null>(null);
   const [answer, setAnswer] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
@@ -212,7 +211,6 @@ export function GradingChatPage() {
                 placeholder="Student name"
                 required
               />
-              <Textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={4} />
               <div className="space-y-2">
                 <label className="block text-sm font-medium">Memo file</label>
                 <Input type="file" accept=".pdf,.txt,.doc,.docx,.png,.jpg,.jpeg" onChange={(event) => setMemo(event.target.files?.[0] || null)} required />
