@@ -213,11 +213,11 @@ export function GradingChatPage() {
               />
               <div className="space-y-2">
                 <label className="block text-sm font-medium">Memo file</label>
-                <Input type="file" accept=".pdf,.txt,.doc,.docx,.png,.jpg,.jpeg" onChange={(event) => setMemo(event.target.files?.[0] || null)} required />
+                <Input type="file" accept=".pdf,.txt,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg" onChange={(event) => setMemo(event.target.files?.[0] || null)} required />
               </div>
               <div className="space-y-2">
                 <label className="block text-sm font-medium">Student answer file</label>
-                <Input type="file" accept=".pdf,.txt,.doc,.docx,.png,.jpg,.jpeg" onChange={(event) => setAnswer(event.target.files?.[0] || null)} required />
+                <Input type="file" accept=".pdf,.txt,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg" onChange={(event) => setAnswer(event.target.files?.[0] || null)} required />
               </div>
               <Button type="submit" disabled={loading} className="w-full">
                 {loading ? "Grading..." : "Grade and save"}
