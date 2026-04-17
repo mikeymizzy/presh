@@ -59,14 +59,38 @@ const DEFAULT_SUPABASE_ANON_KEY =
 const DEFAULT_SUBMISSIONS_TABLE = "submissions";
 
 function getSupabaseConfig(): SupabaseConfig {
+  const configuredUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || DEFAULT_SUPABASE_URL;
+
   return {
-    url: process.env.SUPABASE_URL || DEFAULT_SUPABASE_URL,
+    url: configuredUrl.trim().replace(/\/+$/, ""),
     anonKey:
       process.env.SUPABASE_ANON_KEY ||
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
       DEFAULT_SUPABASE_ANON_KEY,
     table: process.env.SUPABASE_SUBMISSIONS_TABLE || DEFAULT_SUBMISSIONS_TABLE,
   };
+}
+
+function formatSupabaseNetworkError(error: unknown, configuredUrl: string): string | null {
+  if (!(error instanceof Error)) {
+    return null;
+  }
+
+  const maybeCause = (error as Error & { cause?: unknown }).cause;
+  if (typeof maybeCause !== "object" || maybeCause === null) {
+    return null;
+  }
+
+  const cause = maybeCause as { code?: string; hostname?: string };
+  if (cause.code !== "ENOTFOUND") {
+    return null;
+  }
+
+  const host = cause.hostname || "configured Supabase host";
+  return [
+    `Unable to resolve Supabase host '${host}'.`,
+    `Check SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) and confirm DNS/network access for '${configuredUrl}'.`,
+  ].join(" ");
 }
 
 function getMissingTableSetupMessage(tableName: string) {
@@ -100,15 +124,25 @@ function formatSupabaseError(status: number, body: SupabaseErrorBody | string, t
 
 async function supabaseRequest<T>(endpoint: string, init?: RequestInit): Promise<T> {
   const { url, anonKey, table } = getSupabaseConfig();
-  const response = await fetch(`${url}/rest/v1/${endpoint}`, {
-    ...init,
-    headers: {
-      apikey: anonKey,
-      Authorization: `Bearer ${anonKey}`,
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(`${url}/rest/v1/${endpoint}`, {
+      ...init,
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${anonKey}`,
+        "Content-Type": "application/json",
+        ...(init?.headers || {}),
+      },
+    });
+  } catch (error) {
+    const networkError = formatSupabaseNetworkError(error, url);
+    if (networkError) {
+      throw new Error(networkError);
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     const raw = await response.text();
