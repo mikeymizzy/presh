@@ -90,6 +90,43 @@ function parseJsonReport(rawText: string): StructuredGradingReport | null {
   return null;
 }
 
+
+function sanitizePlainText(value: string | undefined, fallback: string) {
+  const normalized = String(value || "")
+    .replace(/```(?:json|markdown|md|text)?/gi, "")
+    .replace(/```/g, "")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line, index, arr) => {
+      if (!line) {
+        return false;
+      }
+
+      const maybeCodeLine = /^[{}\[\]",]+$/.test(line) || /^[\w"-]+\s*:\s*[\[{].*$/.test(line);
+      if (maybeCodeLine && arr.length > 3) {
+        return false;
+      }
+
+      return true;
+    })
+    .join(" ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  return normalized || fallback;
+}
+
+function cleanRawReportText(rawText: string) {
+  return rawText
+    .replace(/```(?:json|markdown|md|text)?/gi, "")
+    .replace(/```/g, "")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function sanitizeList(items: string[] | undefined) {
   return (items || []).map((item) => String(item || "").trim()).filter(Boolean);
 }
@@ -132,6 +169,9 @@ function buildBeautifulReport(report: StructuredGradingReport) {
   const perQuestionLines =
     questions.length > 0
       ? questions.flatMap((question, index) => {
+          const strengths = sanitizePlainText(question.strengths, "No strengths identified.");
+          const issues = sanitizePlainText(question.issues, "No issues identified.");
+          const improvement = sanitizePlainText(question.improvement, "No improvement guidance provided.");
           const title = question.questionTitle ? ` - ${question.questionTitle}` : "";
           const safeMax = Math.max(0, question.maxScore);
           const safeAwarded = Math.max(0, Math.min(question.awardedScore, safeMax));
@@ -139,9 +179,9 @@ function buildBeautifulReport(report: StructuredGradingReport) {
           return [
             `${index + 1}. Question ${question.questionNumber}${title}`,
             `   Score: ${formatScore(safeAwarded)} / ${formatScore(safeMax)}`,
-            `   What was done well: ${question.strengths || "No strengths identified."}`,
-            `   What was incorrect/missing: ${question.issues || "No issues identified."}`,
-            `   How to improve: ${question.improvement || "No improvement guidance provided."}`,
+            `   What was done well: ${strengths}`,
+            `   What was incorrect/missing: ${issues}`,
+            `   How to improve: ${improvement}`,
             "",
           ];
         })
@@ -154,11 +194,11 @@ function buildBeautifulReport(report: StructuredGradingReport) {
   const buildSection = (title: string, items: string[]) => [
     title,
     "-".repeat(56),
-    ...(items.length ? items.map((item) => `• ${item}`) : ["• Not provided."]),
+    ...(items.length ? items.map((item) => `• ${sanitizePlainText(item, "Not provided.")}`) : ["• Not provided."]),
     "",
   ];
 
-  const summary = (report.summaryForParentsTeachers || "No summary provided.").trim();
+  const summary = sanitizePlainText(report.summaryForParentsTeachers, "No summary provided.");
 
   const lines = [
     ...header,
@@ -298,7 +338,7 @@ ${prompt}`,
 
     const report = structuredReport
       ? buildBeautifulReport(structuredReport)
-      : rawReport || "No grading report generated.";
+      : cleanRawReportText(rawReport || "No grading report generated.");
 
     const tempId = crypto.randomUUID();
     const memoFile = await persistUploadedFile(memo, tempId, "memo");
