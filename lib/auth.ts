@@ -7,6 +7,19 @@ const SESSIONS_TABLE = process.env.SUPABASE_SESSIONS_TABLE || "app_sessions";
 const SESSION_COOKIE = "app_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 
+function isMissingTableError(error: unknown) {
+  return error instanceof Error && error.message.includes("PGRST205");
+}
+
+function getAuthSetupMessage() {
+  return [
+    "Auth tables are missing in Supabase.",
+    "Run supabase/submissions.sql in the Supabase SQL editor to create app_users/app_sessions/submissions schema.",
+    `Expected tables: ${USERS_TABLE}, ${SESSIONS_TABLE}.`,
+  ].join(" ");
+}
+
+
 type UserRow = {
   id: string;
   username: string;
@@ -60,44 +73,65 @@ export async function registerUser(username: string, password: string): Promise<
     throw new Error("Password must be at least 6 characters.");
   }
 
-  const existing = await supabaseRequest<UserRow[]>(`${USERS_TABLE}?select=id,username,password_hash,created_at&username=eq.${encodeURIComponent(normalized)}&limit=1`);
-  if (existing[0]) {
-    throw new Error("Username already exists.");
+  try {
+    const existing = await supabaseRequest<UserRow[]>(`${USERS_TABLE}?select=id,username,password_hash,created_at&username=eq.${encodeURIComponent(normalized)}&limit=1`);
+    if (existing[0]) {
+      throw new Error("Username already exists.");
+    }
+
+    const rows = await supabaseRequest<UserRow[]>(`${USERS_TABLE}?select=id,username,password_hash,created_at`, {
+      method: "POST",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({ username: normalized, password_hash: hashPassword(password) }),
+    });
+
+    if (!rows[0]) {
+      throw new Error("Failed to create account.");
+    }
+
+    return { id: rows[0].id, username: rows[0].username };
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      throw new Error(getAuthSetupMessage());
+    }
+    throw error;
   }
-
-  const rows = await supabaseRequest<UserRow[]>(`${USERS_TABLE}?select=id,username,password_hash,created_at`, {
-    method: "POST",
-    headers: { Prefer: "return=representation" },
-    body: JSON.stringify({ username: normalized, password_hash: hashPassword(password) }),
-  });
-
-  if (!rows[0]) {
-    throw new Error("Failed to create account.");
-  }
-
-  return { id: rows[0].id, username: rows[0].username };
 }
 
 export async function loginUser(username: string, password: string): Promise<AuthUser> {
   const normalized = username.trim().toLowerCase();
-  const rows = await supabaseRequest<UserRow[]>(`${USERS_TABLE}?select=id,username,password_hash,created_at&username=eq.${encodeURIComponent(normalized)}&limit=1`);
-  const row = rows[0];
-  if (!row || !verifyPassword(password, row.password_hash)) {
-    throw new Error("Invalid username or password.");
-  }
+  try {
+    const rows = await supabaseRequest<UserRow[]>(`${USERS_TABLE}?select=id,username,password_hash,created_at&username=eq.${encodeURIComponent(normalized)}&limit=1`);
+    const row = rows[0];
+    if (!row || !verifyPassword(password, row.password_hash)) {
+      throw new Error("Invalid username or password.");
+    }
 
-  return { id: row.id, username: row.username };
+    return { id: row.id, username: row.username };
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      throw new Error(getAuthSetupMessage());
+    }
+    throw error;
+  }
 }
 
 export async function createSession(userId: string) {
   const rawToken = randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + SESSION_TTL_SECONDS * 1000).toISOString();
 
-  await supabaseRequest<SessionRow[]>(`${SESSIONS_TABLE}?select=id,user_id,token_hash,expires_at`, {
-    method: "POST",
-    headers: { Prefer: "return=minimal" },
-    body: JSON.stringify({ user_id: userId, token_hash: hashSessionToken(rawToken), expires_at: expiresAt }),
-  });
+  try {
+    await supabaseRequest<SessionRow[]>(`${SESSIONS_TABLE}?select=id,user_id,token_hash,expires_at`, {
+      method: "POST",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ user_id: userId, token_hash: hashSessionToken(rawToken), expires_at: expiresAt }),
+    });
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      throw new Error(getAuthSetupMessage());
+    }
+    throw error;
+  }
 
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE, rawToken, {
@@ -130,9 +164,17 @@ export async function getAuthenticatedUser(): Promise<AuthUser | null> {
   }
 
   const tokenHash = hashSessionToken(token);
-  const sessions = await supabaseRequest<Array<SessionRow & { app_users?: UserRow }>>(
-    `${SESSIONS_TABLE}?select=id,user_id,token_hash,expires_at,app_users(id,username,password_hash,created_at)&token_hash=eq.${encodeURIComponent(tokenHash)}&limit=1`
-  );
+  let sessions: Array<SessionRow & Record<string, UserRow | undefined>>;
+  try {
+    sessions = await supabaseRequest<Array<SessionRow & Record<string, UserRow | undefined>>>(
+      `${SESSIONS_TABLE}?select=id,user_id,token_hash,expires_at,${USERS_TABLE}(id,username,password_hash,created_at)&token_hash=eq.${encodeURIComponent(tokenHash)}&limit=1`
+    );
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return null;
+    }
+    throw error;
+  }
 
   const session = sessions[0];
   if (!session) {
@@ -144,7 +186,7 @@ export async function getAuthenticatedUser(): Promise<AuthUser | null> {
     return null;
   }
 
-  const user = session.app_users;
+  const user = session[USERS_TABLE];
   if (!user) {
     return null;
   }
