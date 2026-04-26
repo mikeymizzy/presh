@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { NextRequest } from "next/server";
-import { findSubmissionById } from "@/lib/submissions-store";
+import { getAuthenticatedUser } from "@/lib/auth";
+import { findSubmissionByIdForUser } from "@/lib/submissions-store";
 
 function escapePdfText(text: string) {
   return text.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
@@ -82,20 +83,19 @@ function createReportPdf(studentName: string, report: string) {
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const target = req.nextUrl.searchParams.get("file");
-  const studentName = req.nextUrl.searchParams.get("studentName")?.trim();
-  const includeAll = req.nextUrl.searchParams.get("includeAll") === "true";
 
   if (target !== "memo" && target !== "answer" && target !== "report") {
     return Response.json({ error: "file query must be memo, answer, or report" }, { status: 400 });
   }
 
-  const submission = await findSubmissionById(id);
-  if (!submission) {
-    return Response.json({ error: "Submission not found" }, { status: 404 });
+  const user = await getAuthenticatedUser();
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!includeAll && (!studentName || submission.studentName !== studentName)) {
-    return Response.json({ error: "Not authorized to access this submission" }, { status: 403 });
+  const submission = await findSubmissionByIdForUser(id, user.id);
+  if (!submission) {
+    return Response.json({ error: "Submission not found" }, { status: 404 });
   }
 
   if (target === "report") {
