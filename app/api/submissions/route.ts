@@ -1,16 +1,17 @@
 import { NextRequest } from "next/server";
-import { getSubmissionStorageInfo, listSubmissionRecords, listSubmissionRecordsByStudent } from "@/lib/submissions-store";
+import { getAuthenticatedUser } from "@/lib/auth";
+import { getSubmissionStorageInfo, listSubmissionRecordsByUserId } from "@/lib/submissions-store";
 
 export async function GET(request: NextRequest) {
-  const studentName = request.nextUrl.searchParams.get("studentName")?.trim();
-  const includeAll = request.nextUrl.searchParams.get("includeAll") === "true";
+  const user = await getAuthenticatedUser();
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-  const submissionsPromise = includeAll
-    ? listSubmissionRecords()
-    : studentName
-      ? listSubmissionRecordsByStudent(studentName)
-      : Promise.resolve([]);
+  const [submissions, storage] = await Promise.all([
+    listSubmissionRecordsByUserId(user.id),
+    getSubmissionStorageInfo(),
+  ]);
 
-  const [submissions, storage] = await Promise.all([submissionsPromise, getSubmissionStorageInfo()]);
-  return Response.json({ submissions, storage });
+  return Response.json({ submissions, storage, user });
 }

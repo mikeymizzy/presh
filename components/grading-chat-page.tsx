@@ -19,6 +19,10 @@ type SubmissionRecord = {
   createdAt: string;
 };
 
+type AuthUser = {
+  id: string;
+  username: string;
+};
 
 const LOADING_MESSAGES = [
   "Reading the memo and student answer…",
@@ -73,59 +77,16 @@ function ReportViewer({ report, loading }: { report: string; loading: boolean })
     return <p className="text-sm text-muted-foreground">Run a submission to see your Gap Learning Grading report.</p>;
   }
 
-  const lines = report.split(/\r?\n/);
-  return (
-    <div className="max-h-[500px] space-y-2 overflow-auto rounded-md border bg-background p-4 text-sm leading-6">
-      {lines.map((line, index) => {
-        const trimmed = line.trim();
-
-        if (!trimmed) {
-          return <div key={index} className="h-2" />;
-        }
-
-        if (/^=+$/.test(trimmed) || /^-+$/.test(trimmed)) {
-          return <hr key={index} className="border-border" />;
-        }
-
-        if (/^\d+\.\s/.test(trimmed) || /^•\s/.test(trimmed)) {
-          return (
-            <p key={index} className="pl-2">
-              {formatInlineText(line)}
-            </p>
-          );
-        }
-
-        if (trimmed === trimmed.toUpperCase() && trimmed.length > 3) {
-          return (
-            <p key={index} className="text-base font-semibold tracking-wide">
-              {formatInlineText(line)}
-            </p>
-          );
-        }
-
-        return <p key={index}>{formatInlineText(line)}</p>;
-      })}
-    </div>
-  );
-}
-
-function formatInlineText(text: string) {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g);
-  return parts.map((part, index) => {
-    if (part.startsWith("**") && part.endsWith("**")) {
-      return (
-        <strong key={index} className="font-semibold">
-          {part.slice(2, -2)}
-        </strong>
-      );
-    }
-    return part;
-  });
+  return <pre className="max-h-[500px] overflow-auto whitespace-pre-wrap rounded-md border bg-background p-4 text-sm leading-6">{report}</pre>;
 }
 
 export function GradingChatPage() {
   const prompt = "Grade the answer against the memo and give a concise report.";
-  const [studentName, setStudentName] = useState("");
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+
   const [memo, setMemo] = useState<File | null>(null);
   const [answer, setAnswer] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
@@ -134,24 +95,75 @@ export function GradingChatPage() {
   const [submissions, setSubmissions] = useState<SubmissionRecord[]>([]);
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
 
-  const loadSubmissions = async (name: string) => {
-    const studentNameValue = name.trim();
-    if (!studentNameValue) {
+  const loadSession = async () => {
+    const response = await fetch("/api/auth/me");
+    if (!response.ok) {
+      setUser(null);
       setSubmissions([]);
       return;
     }
 
-    const response = await fetch(`/api/submissions?studentName=${encodeURIComponent(studentNameValue)}`);
+    const data = (await response.json()) as { user: AuthUser };
+    setUser(data.user);
+  };
+
+  const loadSubmissions = async () => {
+    const response = await fetch("/api/submissions");
+    if (!response.ok) {
+      if (response.status === 401) {
+        setUser(null);
+      }
+      setSubmissions([]);
+      return;
+    }
+
     const data = (await response.json()) as { submissions?: SubmissionRecord[]; storage?: StorageInfo };
     setSubmissions(data.submissions || []);
     setStorageInfo(data.storage || null);
   };
 
   useEffect(() => {
-    loadSubmissions(studentName).catch(() => {
+    loadSession().catch(() => setError("Could not verify login session."));
+  }, []);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    loadSubmissions().catch(() => {
       setError("Could not load submission history.");
     });
-  }, [studentName]);
+  }, [user]);
+
+  const onAuth = async (event: FormEvent) => {
+    event.preventDefault();
+    setError(null);
+
+    const response = await fetch(authMode === "login" ? "/api/auth/login" : "/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+
+    const data = (await response.json()) as { user?: AuthUser; error?: string };
+    if (!response.ok || !data.user) {
+      setError(data.error || "Authentication failed.");
+      return;
+    }
+
+    setUser(data.user);
+    setPassword("");
+  };
+
+  const onLogout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    setUser(null);
+    setReport("");
+    setSubmissions([]);
+    setMemo(null);
+    setAnswer(null);
+  };
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -165,7 +177,6 @@ export function GradingChatPage() {
 
     try {
       const body = new FormData();
-      body.append("studentName", studentName);
       body.append("prompt", prompt);
       body.append("memo", memo);
       body.append("answer", answer);
@@ -196,21 +207,44 @@ export function GradingChatPage() {
     }
   };
 
+  if (!user) {
+    return (
+      <div className="min-h-[100dvh] bg-slate-50 p-4 md:p-8">
+        <main className="mx-auto w-full max-w-md">
+          <Card>
+            <CardHeader>
+              <CardTitle>{authMode === "login" ? "Login" : "Create account"}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form className="space-y-4" onSubmit={onAuth}>
+                <Input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Username" required />
+                <Input value={password} onChange={(event) => setPassword(event.target.value)} type="password" placeholder="Password" required />
+                <Button type="submit" className="w-full">{authMode === "login" ? "Login" : "Create account"}</Button>
+              </form>
+              <Button variant="link" onClick={() => setAuthMode((current) => (current === "login" ? "register" : "login"))}>
+                {authMode === "login" ? "Need an account? Register" : "Already have an account? Login"}
+              </Button>
+              {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            </CardContent>
+          </Card>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-[100dvh] bg-slate-50 p-4 md:p-8">
       <main className="mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Gap Learning Grading</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle>Gap Learning Grading</CardTitle>
+              <Button variant="outline" size="sm" onClick={onLogout}>Logout</Button>
+            </div>
+            <p className="text-sm text-muted-foreground">Logged in as {user.username}</p>
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={onSubmit}>
-              <Input
-                value={studentName}
-                onChange={(event) => setStudentName(event.target.value)}
-                placeholder="Student name"
-                required
-              />
               <div className="space-y-2">
                 <label className="block text-sm font-medium">Memo file</label>
                 <Input type="file" accept=".pdf,.txt,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg" onChange={(event) => setMemo(event.target.files?.[0] || null)} required />
@@ -224,13 +258,7 @@ export function GradingChatPage() {
               </Button>
             </form>
             {error ? <p className="mt-4 text-sm text-destructive">{error}</p> : null}
-            {storageInfo?.usingFallbackTempDir ? (
-              <p className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
-                Persistent directory is not writable in this deployment, so submissions are temporarily stored in {" "}
-                <code className="mx-1 rounded bg-amber-100 px-1 py-0.5">{storageInfo.dataDir}</code>. {" "}
-                Configure <code className="mx-1 rounded bg-amber-100 px-1 py-0.5">SUBMISSIONS_DATA_DIR</code> to a persistent writable volume to keep records long-term.
-              </p>
-            ) : null}
+            {storageInfo?.usingFallbackTempDir ? <p className="mt-4 text-xs">Storage: {storageInfo.dataDir}</p> : null}
           </CardContent>
         </Card>
 
@@ -249,8 +277,7 @@ export function GradingChatPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {!studentName.trim() ? <p className="text-sm text-muted-foreground">Enter your student name to view your submissions.</p> : null}
-              {studentName.trim() && submissions.length === 0 ? <p className="text-sm text-muted-foreground">No submissions saved yet.</p> : null}
+              {submissions.length === 0 ? <p className="text-sm text-muted-foreground">No submissions saved yet.</p> : null}
               {submissions.map((submission) => (
                 <div key={submission.id} className="rounded-lg border p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -259,9 +286,9 @@ export function GradingChatPage() {
                       <p className="text-xs text-muted-foreground">{new Date(submission.createdAt).toLocaleString()}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <a className="text-sm underline" href={`/api/submissions/${submission.id}/download?file=memo&studentName=${encodeURIComponent(studentName.trim())}`}>Memo</a>
-                      <a className="text-sm underline" href={`/api/submissions/${submission.id}/download?file=answer&studentName=${encodeURIComponent(studentName.trim())}`}>Answer</a>
-                      <a className="text-sm underline" href={`/api/submissions/${submission.id}/download?file=report&studentName=${encodeURIComponent(studentName.trim())}`}>Report (PDF)</a>
+                      <a className="text-sm underline" href={`/api/submissions/${submission.id}/download?file=memo`}>Memo</a>
+                      <a className="text-sm underline" href={`/api/submissions/${submission.id}/download?file=answer`}>Answer</a>
+                      <a className="text-sm underline" href={`/api/submissions/${submission.id}/download?file=report`}>Report (PDF)</a>
                     </div>
                   </div>
                 </div>
