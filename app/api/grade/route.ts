@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { getAuthenticatedUser } from "@/lib/auth";
 import {
   createSubmissionRecord,
   getSubmissionStorageInfo,
@@ -224,15 +225,16 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const user = await getAuthenticatedUser();
+    if (!user) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const formData = await req.formData();
-    const studentName = String(formData.get("studentName") || "").trim();
+    const studentName = user.username;
     const prompt = String(formData.get("prompt") || "Grade this submission against the memo and provide a clear report.").trim();
     const memo = formData.get("memo") as File | null;
     const answer = formData.get("answer") as File | null;
-
-    if (!studentName) {
-      return Response.json({ error: "studentName is required" }, { status: 400 });
-    }
 
     if (!memo || !answer) {
       return Response.json({ error: "Both memo and answer files are required" }, { status: 400 });
@@ -345,6 +347,7 @@ ${prompt}`,
     const answerFile = await persistUploadedFile(answer, tempId, "answer");
 
     const submission = await createSubmissionRecord({
+      userId: user.id,
       studentName,
       prompt,
       report,

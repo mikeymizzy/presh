@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { supabaseRequest } from "@/lib/supabase-rest";
 
 export type StoredFile = {
   originalName: string;
@@ -11,6 +12,7 @@ export type StoredFile = {
 
 export type SubmissionRecord = {
   id: string;
+  userId: string;
   studentName: string;
   prompt: string;
   report: string;
@@ -24,6 +26,7 @@ export type SubmissionRecord = {
 
 type SubmissionDatabaseRow = {
   id: string;
+  user_id: string;
   student_name: string;
   prompt: string;
   report: string;
@@ -33,6 +36,7 @@ type SubmissionDatabaseRow = {
 };
 
 type SubmissionInsertPayload = {
+  user_id: string;
   student_name: string;
   prompt: string;
   report: string;
@@ -40,131 +44,36 @@ type SubmissionInsertPayload = {
   files: SubmissionRecord["files"];
 };
 
-type SupabaseConfig = {
-  url: string;
-  anonKey: string;
-  table: string;
-};
-
-type SupabaseErrorBody = {
-  code?: string;
-  message?: string;
-  details?: string | null;
-  hint?: string | null;
-};
-
-const DEFAULT_SUPABASE_URL = "https://omxhddfxldlkoyokdemk.supabase.co";
-const DEFAULT_SUPABASE_ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9teGhkZGZ4bGRsa295b2tkZW1rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE3MzY5NjMsImV4cCI6MjA4NzMxMjk2M30.igVT1rjeylulUKqKDUai7HgOqdEblTm3g1rb_8oo6Lw";
 const DEFAULT_SUBMISSIONS_TABLE = "submissions";
 
-function getSupabaseConfig(): SupabaseConfig {
-  const configuredUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || DEFAULT_SUPABASE_URL;
-
-  return {
-    url: configuredUrl.trim().replace(/\/+$/, ""),
-    anonKey:
-      process.env.SUPABASE_ANON_KEY ||
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-      DEFAULT_SUPABASE_ANON_KEY,
-    table: process.env.SUPABASE_SUBMISSIONS_TABLE || DEFAULT_SUBMISSIONS_TABLE,
-  };
-}
-
-function formatSupabaseNetworkError(error: unknown, configuredUrl: string): string | null {
-  if (!(error instanceof Error)) {
-    return null;
-  }
-
-  const maybeCause = (error as Error & { cause?: unknown }).cause;
-  if (typeof maybeCause !== "object" || maybeCause === null) {
-    return null;
-  }
-
-  const cause = maybeCause as { code?: string; hostname?: string };
-  if (cause.code !== "ENOTFOUND") {
-    return null;
-  }
-
-  const host = cause.hostname || "configured Supabase host";
-  return [
-    `Unable to resolve Supabase host '${host}'.`,
-    `Check SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) and confirm DNS/network access for '${configuredUrl}'.`,
-  ].join(" ");
+function getSubmissionsTable() {
+  return process.env.SUPABASE_SUBMISSIONS_TABLE || DEFAULT_SUBMISSIONS_TABLE;
 }
 
 function getMissingTableSetupMessage(tableName: string) {
   return [
     `Supabase table '${tableName}' was not found in schema cache.`,
     `Create the table (or set SUPABASE_SUBMISSIONS_TABLE to an existing table) and allow anon role access.`,
-    "Run supabase/submissions.sql in the Supabase SQL editor, or use the SQL below:",
-    `create table if not exists public.${tableName} (`,
-    "  id uuid primary key default gen_random_uuid(),",
-    "  student_name text not null,",
-    "  prompt text not null,",
-    "  report text not null,",
-    "  created_at timestamptz not null default now(),",
-    "  openai_response_id text,",
-    "  files jsonb not null",
-    ");",
-    `alter table public.${tableName} enable row level security;`,
-    `create policy \"anon can read ${tableName}\" on public.${tableName} for select to anon using (true);`,
-    `create policy \"anon can insert ${tableName}\" on public.${tableName} for insert to anon with check (true);`,
+    "Run supabase/submissions.sql in the Supabase SQL editor.",
   ].join("\n");
 }
 
-function formatSupabaseError(status: number, body: SupabaseErrorBody | string, tableName: string) {
-  if (typeof body === "object" && body?.code === "PGRST205") {
-    return getMissingTableSetupMessage(tableName);
+function formatStoreError(error: unknown, tableName: string) {
+  if (!(error instanceof Error)) {
+    return error;
   }
 
-  const detailText = typeof body === "string" ? body : JSON.stringify(body);
-  return `Supabase request failed (${status}): ${detailText}`;
-}
-
-async function supabaseRequest<T>(endpoint: string, init?: RequestInit): Promise<T> {
-  const { url, anonKey, table } = getSupabaseConfig();
-  let response: Response;
-
-  try {
-    response = await fetch(`${url}/rest/v1/${endpoint}`, {
-      ...init,
-      headers: {
-        apikey: anonKey,
-        Authorization: `Bearer ${anonKey}`,
-        "Content-Type": "application/json",
-        ...(init?.headers || {}),
-      },
-    });
-  } catch (error) {
-    const networkError = formatSupabaseNetworkError(error, url);
-    if (networkError) {
-      throw new Error(networkError);
-    }
-    throw error;
+  if (error.message.includes("PGRST205")) {
+    return new Error(getMissingTableSetupMessage(tableName));
   }
 
-  if (!response.ok) {
-    const raw = await response.text();
-    let parsed: SupabaseErrorBody | string = raw;
-    try {
-      parsed = JSON.parse(raw) as SupabaseErrorBody;
-    } catch {
-      // keep raw text as-is
-    }
-    throw new Error(formatSupabaseError(response.status, parsed, table));
-  }
-
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return (await response.json()) as T;
+  return error;
 }
 
 function mapRowToSubmissionRecord(row: SubmissionDatabaseRow): SubmissionRecord {
   return {
     id: row.id,
+    userId: row.user_id,
     studentName: row.student_name,
     prompt: row.prompt,
     report: row.report,
@@ -175,7 +84,7 @@ function mapRowToSubmissionRecord(row: SubmissionDatabaseRow): SubmissionRecord 
 }
 
 export async function getSubmissionStorageInfo() {
-  const { table } = getSupabaseConfig();
+  const table = getSubmissionsTable();
   return {
     dataDir: `supabase:${table}`,
     usingFallbackTempDir: false,
@@ -200,8 +109,9 @@ export async function persistUploadedFile(file: File, submissionId: string, labe
 export async function createSubmissionRecord(
   payload: Omit<SubmissionRecord, "id" | "createdAt">
 ): Promise<SubmissionRecord> {
-  const { table } = getSupabaseConfig();
+  const table = getSubmissionsTable();
   const insertPayload: SubmissionInsertPayload = {
+    user_id: payload.userId,
     student_name: payload.studentName,
     prompt: payload.prompt,
     report: payload.report,
@@ -209,46 +119,41 @@ export async function createSubmissionRecord(
     files: payload.files,
   };
 
-  const rows = await supabaseRequest<SubmissionDatabaseRow[]>(
-    `${table}?select=id,student_name,prompt,report,created_at,openai_response_id,files`,
-    {
-      method: "POST",
-      headers: {
-        Prefer: "return=representation",
-      },
-      body: JSON.stringify(insertPayload),
+  try {
+    const rows = await supabaseRequest<SubmissionDatabaseRow[]>(
+      `${table}?select=id,user_id,student_name,prompt,report,created_at,openai_response_id,files`,
+      {
+        method: "POST",
+        headers: {
+          Prefer: "return=representation",
+        },
+        body: JSON.stringify(insertPayload),
+      }
+    );
+
+    if (!rows[0]) {
+      throw new Error("Supabase insert returned no row.");
     }
-  );
 
-  if (!rows[0]) {
-    throw new Error("Supabase insert returned no row.");
+    return mapRowToSubmissionRecord(rows[0]);
+  } catch (error) {
+    throw formatStoreError(error, table);
   }
-
-  return mapRowToSubmissionRecord(rows[0]);
 }
 
-export async function listSubmissionRecords(): Promise<SubmissionRecord[]> {
-  const { table } = getSupabaseConfig();
+export async function listSubmissionRecordsByUserId(userId: string): Promise<SubmissionRecord[]> {
+  const table = getSubmissionsTable();
   const rows = await supabaseRequest<SubmissionDatabaseRow[]>(
-    `${table}?select=id,student_name,prompt,report,created_at,openai_response_id,files&order=created_at.desc`
+    `${table}?select=id,user_id,student_name,prompt,report,created_at,openai_response_id,files&user_id=eq.${encodeURIComponent(userId)}&order=created_at.desc`
   );
 
   return rows.map(mapRowToSubmissionRecord);
 }
 
-export async function listSubmissionRecordsByStudent(studentName: string): Promise<SubmissionRecord[]> {
-  const { table } = getSupabaseConfig();
+export async function findSubmissionByIdForUser(id: string, userId: string): Promise<SubmissionRecord | null> {
+  const table = getSubmissionsTable();
   const rows = await supabaseRequest<SubmissionDatabaseRow[]>(
-    `${table}?select=id,student_name,prompt,report,created_at,openai_response_id,files&student_name=eq.${encodeURIComponent(studentName)}&order=created_at.desc`
-  );
-
-  return rows.map(mapRowToSubmissionRecord);
-}
-
-export async function findSubmissionById(id: string): Promise<SubmissionRecord | null> {
-  const { table } = getSupabaseConfig();
-  const rows = await supabaseRequest<SubmissionDatabaseRow[]>(
-    `${table}?select=id,student_name,prompt,report,created_at,openai_response_id,files&id=eq.${encodeURIComponent(id)}&limit=1`
+    `${table}?select=id,user_id,student_name,prompt,report,created_at,openai_response_id,files&id=eq.${encodeURIComponent(id)}&user_id=eq.${encodeURIComponent(userId)}&limit=1`
   );
 
   return rows[0] ? mapRowToSubmissionRecord(rows[0]) : null;
