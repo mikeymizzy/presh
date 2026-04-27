@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 
 type StorageInfo = {
@@ -209,11 +209,15 @@ export function GradingChatPage() {
 
   if (!user) {
     return (
-      <div className="min-h-[100dvh] bg-slate-50 p-4 md:p-8">
-        <main className="mx-auto w-full max-w-md">
+      <div className="flex min-h-[100dvh] items-center justify-center bg-slate-50 p-4 md:p-8">
+        <main className="w-full max-w-md">
           <Card>
             <CardHeader>
+              <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Gap Learning Grading</p>
               <CardTitle>{authMode === "login" ? "Login" : "Create account"}</CardTitle>
+              <CardDescription>
+                {authMode === "login" ? "Sign in to grade and save submissions." : "Create your account to start grading."}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <form className="space-y-4" onSubmit={onAuth}>
