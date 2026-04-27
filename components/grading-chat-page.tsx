@@ -211,6 +211,7 @@ export function GradingChatPage() {
     return (
       <div className="flex min-h-[100dvh] items-center justify-center bg-slate-50 p-4 md:p-8">
         <main className="w-full max-w-md">
+          <h1 className="mb-6 text-center text-4xl font-bold tracking-tight">Gap Learning Grading</h1>
           <Card>
             <CardHeader>
               <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Gap Learning Grading</p>
