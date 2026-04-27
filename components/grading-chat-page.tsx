@@ -214,6 +214,7 @@ export function GradingChatPage() {
           <h1 className="mb-6 text-center text-4xl font-bold tracking-tight">Gap Learning Grading</h1>
           <Card>
             <CardHeader>
+              <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Gap Learning Grading</p>
               <CardTitle>{authMode === "login" ? "Login" : "Create account"}</CardTitle>
               <CardDescription>
                 {authMode === "login" ? "Sign in to grade and save submissions." : "Create your account to start grading."}
