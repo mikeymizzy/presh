@@ -5,7 +5,8 @@ import { getSubmissionStorageInfo, listSubmissionRecordsByUserId } from "@/lib/s
 export async function GET(request: NextRequest) {
   const user = await getAuthenticatedUser();
   if (!user) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
+    const storage = await getSubmissionStorageInfo();
+    return Response.json({ submissions: [], storage, user: null });
   }
 
   const [submissions, storage] = await Promise.all([
